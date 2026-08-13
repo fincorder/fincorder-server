@@ -9,6 +9,9 @@ from app.core.database import Base
 
 from app.modules.users.models import User
 from app.modules.auth.models import UserIdentity, Session
+from app.modules.accounts.models import Account
+from app.modules.categories.models import Category
+from app.modules.people.models import Person
 
 
 config = context.config

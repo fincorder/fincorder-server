@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import String, DateTime, Enum
 
@@ -24,3 +24,21 @@ class User(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    accounts = relationship(
+        "Account",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    categories = relationship(
+        "Category",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    people = relationship(
+        "Person",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
