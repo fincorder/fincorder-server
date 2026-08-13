@@ -10,6 +10,9 @@ from app.modules.auth import repository
 from app.modules.auth.models import UserIdentity, Session
 from app.modules.users.models import User
 
+from app.modules.accounts import repository as accounts_repository
+from app.modules.categories import repository as categories_repository
+
 
 async def register_user(db: AsyncSession, name: str, email: str, password: str) -> User:
     "Register a new user and identity"
@@ -36,6 +39,8 @@ async def register_user(db: AsyncSession, name: str, email: str, password: str) 
     try:
         await repository.create_user(db, user)
         await repository.create_identity(db, identity)
+        await accounts_repository.create_default_accounts(db, user.id)
+        await categories_repository.create_default_categories(db, user.id)
         await db.commit()
     except Exception:
         await db.rollback()

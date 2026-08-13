@@ -50,3 +50,11 @@ async def soft_delete_account(db: AsyncSession, account: Account) -> None:
     account.deleted_at = datetime.now(timezone.utc)
     account.is_active = False
     await db.flush()
+
+
+async def create_default_accounts(db: AsyncSession, user_id):
+    db.add_all([
+        Account(user_id=user_id, name="Salary Account"),
+        Account(user_id=user_id, name="Spending Account"),
+        Account(user_id=user_id, name="Cash"),
+    ])

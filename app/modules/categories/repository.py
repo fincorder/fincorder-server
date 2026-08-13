@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.categories.models import Category
+from app.modules.categories.models import Category, CategoryType
 
 
 async def create_category(db: AsyncSession, category: Category) -> Category:
@@ -49,3 +49,20 @@ async def soft_delete_category(db: AsyncSession, category: Category) -> None:
     """Soft delete category"""
     category.deleted_at = datetime.now(timezone.utc)
     await db.flush()
+
+
+async def create_default_categories(db: AsyncSession, user_id):
+    db.add_all([
+        Category(user_id=user_id, name="Food", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Transport", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Shopping", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Bills", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Entertainment", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Health", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Other", type=CategoryType.EXPENSE),
+        Category(user_id=user_id, name="Salary", type=CategoryType.INCOME),
+        Category(user_id=user_id, name="Freelance", type=CategoryType.INCOME),
+        Category(user_id=user_id, name="Gift", type=CategoryType.INCOME),
+        Category(user_id=user_id, name="Refund", type=CategoryType.INCOME),
+        Category(user_id=user_id, name="Other", type=CategoryType.INCOME),
+    ])
