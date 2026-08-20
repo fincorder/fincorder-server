@@ -5,10 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import (
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine, AsyncSession
 from sqlalchemy.pool import NullPool
 
 from app.core.database import Base, get_db
@@ -49,3 +46,9 @@ async def client():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    async with TestingSessionLocal() as session:
+        yield session
