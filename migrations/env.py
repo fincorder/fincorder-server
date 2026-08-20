@@ -12,6 +12,7 @@ from app.modules.auth.models import UserIdentity, Session
 from app.modules.accounts.models import Account
 from app.modules.categories.models import Category
 from app.modules.people.models import Person
+from app.modules.conversations.models import Conversation
 
 
 config = context.config
