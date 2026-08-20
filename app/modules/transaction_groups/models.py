@@ -44,8 +44,14 @@ class TransactionGroup(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
-    
+
     financial_event = relationship(
         "FinancialEvent",
         back_populates="transaction_groups",
+    )
+
+    transactions = relationship(
+        "Transaction",
+        back_populates="transaction_group",
+        cascade="all, delete-orphan",
     )

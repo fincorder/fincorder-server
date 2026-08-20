@@ -1,0 +1,100 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.modules.auth.dependencies import get_current_user
+from app.modules.transactions.models import TransactionDirection, TransactionType
+from app.modules.transactions.schemas import CreateTransactionRequest, TransactionResponse, UpdateTransactionRequest
+from app.modules.transactions.service import create_transaction, delete_transaction, get_transaction, get_transactions, update_transaction
+from app.modules.users.models import User
+
+router = APIRouter(prefix="/transactions", tags=["Transactions"])
+
+
+@router.post("", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
+async def create_transaction_controller(
+    data: CreateTransactionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await create_transaction(
+        db=db,
+        transaction_group_id=data.transaction_group_id,
+        user_id=current_user.id,
+        account_id=data.account_id,
+        category_id=data.category_id,
+        person_id=data.person_id,
+        transaction_type=TransactionType(data.type),
+        direction=TransactionDirection(data.direction),
+        amount=data.amount,
+        currency=data.currency.upper(),
+        description=data.description,
+        transaction_date=data.transaction_date,
+    )
+
+
+@router.get("", response_model=list[TransactionResponse])
+async def get_transactions_controller(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await get_transactions(db, current_user.id)
+
+
+@router.get("/{transaction_id}", response_model=TransactionResponse)
+async def get_transaction_controller(
+    transaction_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await get_transaction(db, transaction_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+
+@router.patch("/{transaction_id}", response_model=TransactionResponse)
+async def update_transaction_controller(
+    transaction_id: uuid.UUID,
+    data: UpdateTransactionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await update_transaction(
+            db=db,
+            transaction_id=transaction_id,
+            user_id=current_user.id,
+            account_id=data.account_id,
+            category_id=data.category_id,
+            person_id=data.person_id,
+            amount=data.amount,
+            currency=data.currency.upper() if data.currency else None,
+            description=data.description,
+            transaction_date=data.transaction_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+
+
+@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_transaction_controller(
+    transaction_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        await delete_transaction(db, transaction_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
