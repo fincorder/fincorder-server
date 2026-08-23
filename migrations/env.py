@@ -20,7 +20,7 @@ from app.modules.transactions.models import Transaction
 
 config = context.config
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.DB_URL)
 
 target_metadata = Base.metadata
 
