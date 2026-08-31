@@ -86,3 +86,7 @@ async def mark_failed(db: AsyncSession, event: FinancialEvent, error: str) -> Fi
     await db.commit()
 
     return event
+
+
+async def get_pending_event_by_conversation(db: AsyncSession, conversation_id: uuid.UUID):
+    return await repository.get_pending_event_by_conversation(db, conversation_id)

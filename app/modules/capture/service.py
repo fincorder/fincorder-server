@@ -2,10 +2,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.openai_provider import OpenAIProvider
+from app.ai.schemas import CaptureAIResponse
 from app.modules.capture.context_builder import build_capture_context
-from app.modules.capture.schemas import CaptureResponse
 from app.modules.capture.helpers import resolve_account_id, resolve_category_id, resolve_person_id
+from app.modules.capture.schemas import CaptureResponse
 from app.modules.conversations import repository as conversations_repository
 from app.modules.conversations.models import Conversation
 from app.modules.financial_events import service as financial_events_service
@@ -15,14 +15,9 @@ from app.modules.transaction_groups import service as transaction_groups_service
 from app.modules.transactions import service as transactions_service
 from app.modules.transactions.models import TransactionDirection, TransactionType
 
-def get_ai_provider():
-    return OpenAIProvider()
 
-
-async def capture_message(db: AsyncSession, user, message: str, conversation_id=None, ai_provider=None) -> CaptureResponse:
-    ai_provider = ai_provider or get_ai_provider()
-
-    # Conversation
+async def capture_message(db: AsyncSession, user, message: str, conversation_id, ai_provider) -> CaptureResponse:
+    # 1. Get or create conversation
     if conversation_id:
         conversation = await conversations_repository.get_conversation_by_id(db, conversation_id, user.id)
         if not conversation:
@@ -32,44 +27,55 @@ async def capture_message(db: AsyncSession, user, message: str, conversation_id=
         await conversations_repository.create_conversation(db, conversation)
         await db.commit()
 
-    # User message
+    # 2. Save user message
     user_message = Message(conversation_id=conversation.id, role="user", content=message)
     await messages_repository.create_message(db, user_message)
     await db.commit()
 
-    # Financial event
-    financial_event = await financial_events_service.create_financial_event(
-        db=db,
-        conversation_id=conversation.id,
-        source_message_id=user_message.id,
-        user_id=user.id,
-        raw_text=message,
-    )
+    # 3. Check for an existing clarification event
+    pending_event = await financial_events_service.get_pending_event_by_conversation(db=db, conversation_id=conversation.id)
 
-    # Context
-    context = await build_capture_context(db, user.id)
+    # 4. Build context
+    context = await build_capture_context(db=db, user_id=user.id, conversation_id=conversation.id)
 
-    # AI extraction
+    # 5. AI extraction
     ai_response = await ai_provider.extract_financial_event(message=message, context=context)
 
-    # Clarification
+    # 6. If there is a pending event, continue that event
+    if pending_event:
+        financial_event = pending_event
+
+    # 7. Otherwise create a new financial event
+    else:
+        financial_event = await financial_events_service.create_financial_event(db=db, conversation_id=conversation.id, source_message_id=user_message.id, user_id=user.id, raw_text=message)
+
+    # 8. Process AI response
+    needs_clarification = await process_ai_response(db=db, user=user, financial_event=financial_event, ai_response=ai_response)
+
+    # 9. Return response
+    return CaptureResponse(
+        conversation_id=conversation.id,
+        message_id=user_message.id,
+        financial_event_id=financial_event.id,
+        status=ai_response.status,
+        assistant_message=ai_response.assistant_message,
+        needs_clarification=needs_clarification,
+        missing_fields=ai_response.missing_fields,
+    )
+
+
+async def process_ai_response(db: AsyncSession, user, financial_event, ai_response: CaptureAIResponse) -> bool:
+    """Process the AI response. Returns True if clarification is required."""
+
     if ai_response.status == "needs_clarification":
         await financial_events_service.mark_needs_clarification(db=db, event=financial_event, missing_fields=ai_response.missing_fields)
+        return True
 
-        return CaptureResponse(
-            conversation_id=conversation.id,
-            message_id=user_message.id,
-            financial_event_id=financial_event.id,
-            status=ai_response.status,
-            assistant_message=ai_response.assistant_message,
-            needs_clarification=True,
-            missing_fields=ai_response.missing_fields,
-        )
+    if ai_response.status == "failed":
+        return False
 
-    # Transaction group
     transaction_group = await transaction_groups_service.create_transaction_group(db=db, financial_event_id=financial_event.id)
 
-    # Transactions
     for txn in ai_response.transactions:
         await transactions_service.create_transaction(
             db=db,
@@ -83,22 +89,10 @@ async def capture_message(db: AsyncSession, user, message: str, conversation_id=
             amount=txn.amount,
             currency=txn.currency,
             description=txn.description,
-            transaction_date=(
-                datetime.fromisoformat(txn.transaction_date)
-                if txn.transaction_date
-                else datetime.now(timezone.utc)
-            ),
+            transaction_date=datetime.fromisoformat(txn.transaction_date) if txn.transaction_date else datetime.now(timezone.utc),
         )
 
     await transaction_groups_service.mark_posted(db=db, transaction_group=transaction_group)
     await financial_events_service.mark_completed(db=db, event=financial_event, extracted_data=ai_response.model_dump(mode="json"))
 
-    return CaptureResponse(
-        conversation_id=conversation.id,
-        message_id=user_message.id,
-        financial_event_id=financial_event.id,
-        status=ai_response.status,
-        assistant_message=ai_response.assistant_message,
-        needs_clarification=False,
-        missing_fields=[],
-    )
+    return False

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.financial_events.models import FinancialEvent
+from app.modules.financial_events.models import FinancialEvent, FinancialEventStatus
 
 
 async def create_financial_event(db: AsyncSession, event: FinancialEvent) -> FinancialEvent:
@@ -33,3 +33,15 @@ async def get_financial_events_by_conversation(db: AsyncSession, conversation_id
 async def update_financial_event(db: AsyncSession, event: FinancialEvent) -> FinancialEvent:
     await db.flush()
     return event
+
+
+async def get_pending_event_by_conversation(db, conversation_id):
+    result = await db.execute(
+        select(FinancialEvent)
+        .where(
+            FinancialEvent.conversation_id == conversation_id,
+            FinancialEvent.status == FinancialEventStatus.NEEDS_CLARIFICATION,
+        )
+        .order_by(FinancialEvent.created_at.desc())
+    )
+    return result.scalars().first()

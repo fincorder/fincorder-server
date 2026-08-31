@@ -29,7 +29,7 @@ class AITransaction(BaseModel):
 
 class CaptureAIResponse(BaseModel):
     status: Literal["completed", "needs_clarification", "failed"]
-    transactions: list[AITransaction] = []
-    missing_fields: list[str] = []
+    transactions: list[AITransaction] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
     assistant_message: str
     confidence: float = Field(ge=0, le=1)
