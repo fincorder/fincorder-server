@@ -222,3 +222,48 @@ async def test_capture_clarification_flow(client):
 
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_capture_defaults_account_when_missing(client):
+    token = await register_and_login(client)
+
+    ai_response = CaptureAIResponse(
+        status="completed",
+        transactions=[
+            AITransaction(
+                type="expense",
+                amount=2900,
+                currency="INR",
+                account=None,
+                category="Bills",
+                person=None,
+                description="Supergrok AI subscription",
+                transaction_date=None,
+                direction="debit",
+            )
+        ],
+        missing_fields=[],
+        assistant_message="Recorded your ₹2900 subscription expense.",
+        confidence=0.99,
+    )
+
+    provider = AsyncMock()
+    provider.extract_financial_event.return_value = ai_response
+
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        response = await client.post(
+            "/capture",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "message": "Bought Supergrok AI subscription for Rs.2900",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+
+    finally:
+        app.dependency_overrides.clear()

@@ -32,23 +32,22 @@ class OpenAIProvider(AIProvider):
             instructions=CAPTURE_SYSTEM_PROMPT,
             input=input_messages,
             text_format=CaptureAIResponse,
+            reasoning={"effort": "low"},
+            max_output_tokens=4096,
         )
 
-        return response.output_parsed
+        return self.parse_output(response)
 
 
-    def format_context(self, context: dict) -> str:
-        result = (
-            f"Today: {context['today']}\n"
-            f"Accounts: {', '.join(context['accounts']) or 'None'}\n"
-            f"Categories: {', '.join(context['categories']) or 'None'}\n"
-            f"People: {', '.join(context['people']) or 'None'}"
+    def parse_output(self, response) -> CaptureAIResponse:
+        if response.output_parsed is not None:
+            return response.output_parsed
+
+        if response.output_text:
+            return CaptureAIResponse.model_validate_json(response.output_text)
+
+        return CaptureAIResponse(
+            status="failed",
+            assistant_message="I couldn't extract a financial event from that message.",
+            confidence=0.0,
         )
-
-        if context["messages"]:
-            result += "\nConversation:\n"
-
-            for message in context["messages"]:
-                result += f"{message['role']}: {message['content']}\n"
-
-        return result

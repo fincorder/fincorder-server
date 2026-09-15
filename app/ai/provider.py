@@ -11,3 +11,19 @@ class AIProvider(ABC):
         structured financial data.
         """
         pass
+
+    def format_context(self, context: dict) -> str:
+        result = (
+            f"Today: {context['today']}\n"
+            f"Accounts: {', '.join(context['accounts']) or 'None'}\n"
+            f"Categories: {', '.join(context['categories']) or 'None'}\n"
+            f"People: {', '.join(context['people']) or 'None'}"
+        )
+
+        if context["messages"]:
+            result += "\nConversation:\n"
+
+            for message in context["messages"]:
+                result += f"{message['role']}: {message['content']}\n"
+
+        return result

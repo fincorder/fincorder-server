@@ -72,6 +72,7 @@ async def process_ai_response(db: AsyncSession, user, financial_event, ai_respon
         return True
 
     if ai_response.status == "failed":
+        await financial_events_service.mark_failed(db=db, event=financial_event, error=ai_response.assistant_message)
         return False
 
     transaction_group = await transaction_groups_service.create_transaction_group(db=db, financial_event_id=financial_event.id)

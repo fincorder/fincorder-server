@@ -14,7 +14,7 @@ class AITransaction(BaseModel):
         "repayment",
     ]
 
-    amount: Decimal = Field(gt=0)
+    amount: Decimal
     currency: str = "INR"
 
     account: str | None = None

@@ -4,16 +4,23 @@ from app.modules.people import repository as people_repository
 
 
 async def resolve_account_id(db, user_id, name):
-    if not name:
-        return None
-
     accounts = await accounts_repository.get_accounts(db, user_id)
 
+    if name:
+        for account in accounts:
+            if account.name.lower() == name.lower():
+                return account.id
+
+        raise ValueError(f"Account '{name}' not found")
+
     for account in accounts:
-        if account.name.lower() == name.lower():
+        if account.name.lower() == "spending account":
             return account.id
 
-    raise ValueError(f"Account '{name}' not found")
+    if accounts:
+        return accounts[0].id
+
+    raise ValueError("Account not found")
 
 
 async def resolve_category_id(db, user_id, name):

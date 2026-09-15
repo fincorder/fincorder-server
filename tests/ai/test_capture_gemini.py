@@ -3,8 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.ai.gemini_provider import GeminiProvider
 from app.ai.openai_provider import OpenAIProvider
 from app.ai.schemas import AITransaction, CaptureAIResponse
+from app.core.config import settings
+from app.modules.capture.dependencies import get_ai_provider
 
 
 @pytest.fixture
@@ -30,19 +33,24 @@ def capture_response():
     )
 
 
-@pytest.mark.asyncio
-async def test_openai_provider_returns_capture_response(capture_response):
-    provider = OpenAIProvider()
+@pytest.fixture
+def provider():
+    with patch("app.ai.gemini_provider.genai.Client"):
+        yield GeminiProvider()
 
+
+@pytest.mark.asyncio
+async def test_gemini_provider_returns_capture_response(provider, capture_response):
     mock_response = MagicMock()
-    mock_response.output_parsed = capture_response
+    mock_response.parsed = capture_response
+    mock_response.text = None
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
-    ) as mock_parse:
+    ) as mock_generate:
 
         result = await provider.extract_financial_event(
             message="Paid ₹500 for petrol"
@@ -62,13 +70,11 @@ async def test_openai_provider_returns_capture_response(capture_response):
     assert transaction.description == "Petrol"
     assert transaction.direction == "debit"
 
-    mock_parse.assert_awaited_once()
+    mock_generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_handles_clarification():
-    provider = OpenAIProvider()
-
+async def test_gemini_provider_handles_clarification(provider):
     capture_response = CaptureAIResponse(
         status="needs_clarification",
         transactions=[],
@@ -78,11 +84,12 @@ async def test_openai_provider_handles_clarification():
     )
 
     mock_response = MagicMock()
-    mock_response.output_parsed = capture_response
+    mock_response.parsed = capture_response
+    mock_response.text = None
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
     ):
@@ -99,21 +106,12 @@ async def test_openai_provider_handles_clarification():
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_passes_context():
-    provider = OpenAIProvider()
-
-    capture_response = CaptureAIResponse(
-        status="completed",
-        transactions=[],
-        missing_fields=[],
-        assistant_message="Recorded.",
-        confidence=0.95,
-    )
-
+async def test_gemini_provider_passes_context(provider, capture_response):
     mock_response = MagicMock()
-    mock_response.output_parsed = capture_response
+    mock_response.parsed = capture_response
+    mock_response.text = None
 
-    context = context = {
+    context = {
         "today": "2026-08-31",
         "accounts": ["Salary Account", "Spending Account", "Cash"],
         "categories": ["Transport", "Food"],
@@ -131,11 +129,11 @@ async def test_openai_provider_passes_context():
     }
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
-    ) as mock_parse:
+    ) as mock_generate:
 
         result = await provider.extract_financial_event(
             message="Paid ₹500 for petrol",
@@ -144,60 +142,49 @@ async def test_openai_provider_passes_context():
 
     assert result == capture_response
 
-    call_kwargs = mock_parse.call_args.kwargs
+    call_kwargs = mock_generate.call_args.kwargs
 
     assert call_kwargs["model"] == provider.model
-    assert call_kwargs["instructions"]
-    assert call_kwargs["text_format"] is CaptureAIResponse
+    assert call_kwargs["config"].system_instruction
+    assert call_kwargs["config"].response_json_schema == CaptureAIResponse.model_json_schema()
 
-    input_messages = call_kwargs["input"]
+    contents = call_kwargs["contents"]
 
-    assert input_messages[0]["role"] == "developer"
-    assert "2026-08-31" in input_messages[0]["content"]
-    assert "Salary Account" in input_messages[0]["content"]
-    assert "Fouzan" in input_messages[0]["content"]
-    assert "Paid ₹300 for dinner" in input_messages[0]["content"]
-    assert "Recorded your ₹300 dinner expense." in input_messages[0]["content"]
+    assert contents[0]["role"] == "user"
+    assert "2026-08-31" in contents[0]["parts"][0]["text"]
+    assert "Salary Account" in contents[0]["parts"][0]["text"]
+    assert "Fouzan" in contents[0]["parts"][0]["text"]
+    assert "Paid ₹300 for dinner" in contents[0]["parts"][0]["text"]
+    assert "Recorded your ₹300 dinner expense." in contents[0]["parts"][0]["text"]
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_without_context():
-    provider = OpenAIProvider()
-
-    capture_response = CaptureAIResponse(
-        status="completed",
-        transactions=[],
-        missing_fields=[],
-        assistant_message="Recorded.",
-        confidence=0.95,
-    )
-
+async def test_gemini_provider_without_context(provider, capture_response):
     mock_response = MagicMock()
-    mock_response.output_parsed = capture_response
+    mock_response.parsed = capture_response
+    mock_response.text = None
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
-    ) as mock_parse:
+    ) as mock_generate:
 
         await provider.extract_financial_event(
             message="Paid ₹500 for petrol"
         )
 
-    input_messages = mock_parse.call_args.kwargs["input"]
+    contents = mock_generate.call_args.kwargs["contents"]
 
-    assert input_messages[-1] == {
+    assert contents[-1] == {
         "role": "user",
-        "content": "Paid ₹500 for petrol",
+        "parts": [{"text": "Paid ₹500 for petrol"}],
     }
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_parses_output_text_when_output_parsed_missing():
-    provider = OpenAIProvider()
-
+async def test_gemini_provider_parses_text_when_parsed_missing(provider):
     capture_response = CaptureAIResponse(
         status="completed",
         transactions=[],
@@ -207,12 +194,12 @@ async def test_openai_provider_parses_output_text_when_output_parsed_missing():
     )
 
     mock_response = MagicMock()
-    mock_response.output_parsed = None
-    mock_response.output_text = capture_response.model_dump_json()
+    mock_response.parsed = None
+    mock_response.text = capture_response.model_dump_json()
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
     ):
@@ -225,16 +212,14 @@ async def test_openai_provider_parses_output_text_when_output_parsed_missing():
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_returns_failed_when_output_missing():
-    provider = OpenAIProvider()
-
+async def test_gemini_provider_returns_failed_when_output_missing(provider):
     mock_response = MagicMock()
-    mock_response.output_parsed = None
-    mock_response.output_text = ""
+    mock_response.parsed = None
+    mock_response.text = ""
 
     with patch.object(
-        provider.client.responses,
-        "parse",
+        provider.client.aio.models,
+        "generate_content",
         new_callable=AsyncMock,
         return_value=mock_response,
     ):
@@ -246,3 +231,20 @@ async def test_openai_provider_returns_failed_when_output_missing():
     assert result.status == "failed"
     assert result.transactions == []
     assert result.missing_fields == []
+
+
+def test_get_ai_provider_returns_gemini(monkeypatch):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "gemini")
+
+    with patch("app.ai.gemini_provider.genai.Client"):
+        provider = get_ai_provider()
+
+    assert isinstance(provider, GeminiProvider)
+
+
+def test_get_ai_provider_returns_openai(monkeypatch):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "openai")
+
+    provider = get_ai_provider()
+
+    assert isinstance(provider, OpenAIProvider)
