@@ -246,3 +246,41 @@ async def test_openai_provider_returns_failed_when_output_missing():
     assert result.status == "failed"
     assert result.transactions == []
     assert result.missing_fields == []
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_returns_failed_when_output_is_whitespace():
+    provider = OpenAIProvider()
+
+    mock_response = MagicMock()
+    mock_response.output_parsed = None
+    mock_response.output_text = "   \n"
+
+    with patch.object(
+        provider.client.responses,
+        "parse",
+        new_callable=AsyncMock,
+        return_value=mock_response,
+    ):
+        result = await provider.extract_financial_event(message="Paid ₹500")
+
+    assert result.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_returns_failed_when_output_is_invalid_json():
+    provider = OpenAIProvider()
+
+    mock_response = MagicMock()
+    mock_response.output_parsed = None
+    mock_response.output_text = "not valid json"
+
+    with patch.object(
+        provider.client.responses,
+        "parse",
+        new_callable=AsyncMock,
+        return_value=mock_response,
+    ):
+        result = await provider.extract_financial_event(message="Paid ₹500")
+
+    assert result.status == "failed"

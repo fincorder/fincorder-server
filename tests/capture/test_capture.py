@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -271,7 +272,15 @@ async def test_capture_defaults_account_when_missing(client):
 
 
 @pytest.mark.asyncio
-async def test_capture_can_update_existing_transaction(client):
+@pytest.mark.parametrize("transaction_date", [
+    None,
+    "2026-09-20T00:00:00+00:00",
+    "2026-09-20T00:00:00Z",
+    "2026-09-20T09:30:00+05:30",
+    "2026-09-20",
+    "2026-09-20T09:30:00",
+])
+async def test_capture_can_update_existing_transaction(client, transaction_date):
     token = await register_and_login(client)
 
     create_response = CaptureAIResponse(
@@ -298,6 +307,7 @@ async def test_capture_can_update_existing_transaction(client):
                 transaction_id=None,
                 amount=650,
                 description="Petrol for scooter",
+                transaction_date=transaction_date,
             )
         ],
         assistant_message="Updated the transaction.",
@@ -323,6 +333,7 @@ async def test_capture_can_update_existing_transaction(client):
             headers={"Authorization": f"Bearer {token}"},
         )
         transaction_id = transactions.json()[0]["id"]
+        original = transactions.json()[0]
         responses[1].transactions[0].transaction_id = UUID(transaction_id)
 
         second = await client.post(
@@ -342,6 +353,15 @@ async def test_capture_can_update_existing_transaction(client):
         assert updated.status_code == 200
         assert updated.json()["amount"] == "650.00"
         assert updated.json()["description"] == "Petrol for scooter"
+        assert updated.json()["id"] == transaction_id
+        assert updated.json()["account_id"] == original["account_id"]
+        assert updated.json()["category_id"] == original["category_id"]
+        expected_date = datetime.fromisoformat(transaction_date or original["transaction_date"])
+        if expected_date.tzinfo is None:
+            expected_date = expected_date.replace(tzinfo=timezone.utc)
+        assert datetime.fromisoformat(updated.json()["transaction_date"]) == expected_date
+        history = await client.get("/transactions", headers={"Authorization": f"Bearer {token}"})
+        assert len(history.json()) == 1
 
         messages = await client.get(
             f"/conversations/{conversation_id}/messages",

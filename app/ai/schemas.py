@@ -1,8 +1,8 @@
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, WithJsonSchema
 
 
 class AITransaction(BaseModel):
@@ -18,7 +18,9 @@ class AITransaction(BaseModel):
         "repayment",
     ] | None = None
 
-    amount: Decimal | None = None
+    # Advertise a JSON number to AI providers, while retaining Decimal validation
+    # and storage. Pydantic's default Decimal string regex breaks GPT-4.1 output.
+    amount: Annotated[Decimal, WithJsonSchema({"type": "number"}, mode="validation")] | None = None
     currency: str = "INR"
 
     account: str | None = None

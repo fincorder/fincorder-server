@@ -1,6 +1,16 @@
+from datetime import datetime, timezone
+
 from app.modules.accounts import repository as accounts_repository
 from app.modules.categories import repository as categories_repository
 from app.modules.people import repository as people_repository
+
+
+def parse_transaction_date(value: str) -> datetime:
+    """Convert AI date text to a database timestamp; assume UTC without an offset."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 async def resolve_account_id(db, user_id, name):

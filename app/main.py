@@ -1,5 +1,11 @@
-from fastapi import FastAPI
+import logging
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.config import settings
+from app.core.logging import configure_logging
 from app.modules.auth.controller import router as auth_router
 from app.modules.accounts.controller import router as accounts_router
 from app.modules.categories.controller import router as categories_router
@@ -12,7 +18,26 @@ from app.modules.transactions.controller import router as transactions_router
 from app.modules.capture.controller import router as capture_router
 
 
+configure_logging()
 app = FastAPI()
+logger = logging.getLogger(__name__)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled request error method=%s path=%s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Check the backend logs for details."},
+    )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():

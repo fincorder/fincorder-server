@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.schemas import CaptureAIResponse
 from app.modules.capture.context_builder import build_capture_context
-from app.modules.capture.helpers import resolve_account_id, resolve_category_id, resolve_person_id
+from app.modules.capture.helpers import parse_transaction_date, resolve_account_id, resolve_category_id, resolve_person_id
 from app.modules.capture.schemas import CaptureResponse
 from app.modules.conversations import repository as conversations_repository
 from app.modules.conversations.models import Conversation, ConversationStatus
@@ -150,6 +150,8 @@ async def process_ai_response(db: AsyncSession, user, financial_event, ai_respon
                 updates["type"] = TransactionType(updates["type"])
             if "direction" in updates:
                 updates["direction"] = TransactionDirection(updates["direction"])
+            if "transaction_date" in updates:
+                updates["transaction_date"] = parse_transaction_date(updates["transaction_date"])
 
             await transactions_service.update_transaction(db, txn.transaction_id, user.id, commit=False, **updates)
             continue
@@ -169,7 +171,7 @@ async def process_ai_response(db: AsyncSession, user, financial_event, ai_respon
             amount=txn.amount,
             currency=txn.currency,
             description=txn.description,
-            transaction_date=datetime.fromisoformat(txn.transaction_date) if txn.transaction_date else datetime.now(timezone.utc),
+            transaction_date=parse_transaction_date(txn.transaction_date) if txn.transaction_date else datetime.now(timezone.utc),
             commit=False,
         )
 
