@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -43,10 +44,39 @@ async def create_transaction_controller(
 
 @router.get("", response_model=list[TransactionResponse])
 async def get_transactions_controller(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    type: TransactionType | None = Query(default=None),
+    direction: TransactionDirection | None = Query(default=None),
+    account_id: uuid.UUID | None = Query(default=None),
+    category_id: uuid.UUID | None = Query(default=None),
+    person_id: uuid.UUID | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    search: str | None = Query(default=None, min_length=1, max_length=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await get_transactions(db, current_user.id)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="date_from must be before or equal to date_to",
+        )
+
+    return await get_transactions(
+        db,
+        current_user.id,
+        limit=limit,
+        offset=offset,
+        transaction_type=type,
+        direction=direction,
+        account_id=account_id,
+        category_id=category_id,
+        person_id=person_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
 
 
 @router.get("/{transaction_id}", response_model=TransactionResponse)

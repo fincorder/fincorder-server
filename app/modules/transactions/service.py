@@ -27,6 +27,7 @@ async def create_transaction(
     currency: str,
     description: str | None,
     transaction_date: datetime,
+    commit: bool = True,
 ) -> Transaction:
     if not await repository.get_transaction_group_for_user(db, transaction_group_id, user_id):
         raise ValueError("Transaction group not found")
@@ -55,13 +56,14 @@ async def create_transaction(
     )
 
     await repository.create_transaction(db, transaction)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return transaction
 
 
-async def get_transactions(db: AsyncSession, user_id: uuid.UUID) -> list[Transaction]:
-    return await repository.get_transactions(db, user_id)
+async def get_transactions(db: AsyncSession, user_id: uuid.UUID, **filters) -> list[Transaction]:
+    return await repository.get_transactions(db, user_id, **filters)
 
 
 async def get_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID) -> Transaction:
@@ -72,7 +74,7 @@ async def get_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: 
     return transaction
 
 
-async def update_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, **updates) -> Transaction:
+async def update_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, commit: bool = True, **updates) -> Transaction:
     transaction = await repository.get_transaction_by_id(db, transaction_id, user_id)
     if not transaction:
         raise ValueError("Transaction not found")
@@ -94,15 +96,17 @@ async def update_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_i
             setattr(transaction, field, value)
 
     await repository.update_transaction(db, transaction)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return transaction
 
 
-async def delete_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def delete_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, commit: bool = True) -> None:
     transaction = await repository.get_transaction_by_id(db, transaction_id, user_id)
     if not transaction:
         raise ValueError("Transaction not found")
 
     await repository.soft_delete_transaction(db, transaction)
-    await db.commit()
+    if commit:
+        await db.commit()

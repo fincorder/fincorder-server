@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ async def create_message(db: AsyncSession, conversation_id: uuid.UUID, user_id: 
     )
 
     await repository.create_message(db, message)
+    conversation.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
     return message

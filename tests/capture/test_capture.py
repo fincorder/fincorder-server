@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
@@ -304,7 +305,8 @@ async def test_capture_can_update_existing_transaction(client):
     )
 
     provider = AsyncMock()
-    provider.extract_financial_event.side_effect = [create_response, update_response]
+    responses = [create_response, update_response]
+    provider.extract_financial_event.side_effect = responses
     app.dependency_overrides[get_ai_provider] = lambda: provider
 
     try:
@@ -321,7 +323,7 @@ async def test_capture_can_update_existing_transaction(client):
             headers={"Authorization": f"Bearer {token}"},
         )
         transaction_id = transactions.json()[0]["id"]
-        provider.extract_financial_event.side_effect[1].transactions[0].transaction_id = transaction_id
+        responses[1].transactions[0].transaction_id = UUID(transaction_id)
 
         second = await client.post(
             "/capture",
@@ -349,3 +351,93 @@ async def test_capture_can_update_existing_transaction(client):
         assert messages.json()[-1]["role"] == "assistant"
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_capture_can_delete_existing_transaction(client):
+    token = await register_and_login(client)
+
+    create_response = CaptureAIResponse(
+        status="completed",
+        transactions=[
+            AITransaction(
+                type="expense",
+                amount=500,
+                account="Spending Account",
+                category="Transport",
+                direction="debit",
+            )
+        ],
+        assistant_message="Recorded the expense.",
+        confidence=0.99,
+    )
+    delete_response = CaptureAIResponse(
+        status="completed",
+        transactions=[AITransaction(operation="delete")],
+        assistant_message="Deleted the transaction.",
+        confidence=0.99,
+    )
+
+    provider = AsyncMock()
+    responses = [create_response, delete_response]
+    provider.extract_financial_event.side_effect = responses
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        first = await client.post(
+            "/capture",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": "Paid ₹500 for petrol"},
+        )
+        conversation_id = first.json()["conversation_id"]
+        transactions = await client.get(
+            "/transactions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        transaction_id = transactions.json()[0]["id"]
+        responses[1].transactions[0].transaction_id = UUID(transaction_id)
+
+        second = await client.post(
+            "/capture",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "conversation_id": conversation_id,
+                "message": "Delete that transaction",
+            },
+        )
+        assert second.status_code == 200
+
+        deleted = await client.get(
+            f"/transactions/{transaction_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert deleted.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_capture_rejects_archived_conversation(client):
+    token = await register_and_login(client)
+    conversation = await client.post(
+        "/conversations",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Archived"},
+    )
+    conversation_id = conversation.json()["id"]
+
+    archived = await client.patch(
+        f"/conversations/{conversation_id}/archive",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert archived.status_code == 200
+
+    response = await client.post(
+        "/capture",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "conversation_id": conversation_id,
+            "message": "Paid ₹500 for petrol",
+        },
+    )
+    assert response.status_code == 404

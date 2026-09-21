@@ -8,7 +8,7 @@ from app.modules.financial_events.models import FinancialEvent, FinancialEventSt
 from app.modules.messages import repository as messages_repository
 
 
-async def create_financial_event(db: AsyncSession, conversation_id: uuid.UUID, source_message_id: uuid.UUID, user_id: uuid.UUID, raw_text: str) -> FinancialEvent:
+async def create_financial_event(db: AsyncSession, conversation_id: uuid.UUID, source_message_id: uuid.UUID, user_id: uuid.UUID, raw_text: str, commit: bool = True) -> FinancialEvent:
     conversation = await conversations_repository.get_conversation_by_id(db, conversation_id, user_id)
     if not conversation:
         raise ValueError("Conversation not found")
@@ -25,7 +25,8 @@ async def create_financial_event(db: AsyncSession, conversation_id: uuid.UUID, s
     )
 
     await repository.create_financial_event(db, event)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return event
 
@@ -50,40 +51,44 @@ async def get_financial_events(db: AsyncSession, conversation_id: uuid.UUID, use
     return await repository.get_financial_events_by_conversation(db, conversation_id)
 
 
-async def mark_processing(db: AsyncSession, event: FinancialEvent) -> FinancialEvent:
+async def mark_processing(db: AsyncSession, event: FinancialEvent, commit: bool = True) -> FinancialEvent:
     event.status = FinancialEventStatus.PROCESSING
     await repository.update_financial_event(db, event)
-    await db.commit()
+    if commit:
+        await db.commit()
     return event
 
 
-async def mark_completed(db: AsyncSession, event: FinancialEvent, extracted_data: dict) -> FinancialEvent:
+async def mark_completed(db: AsyncSession, event: FinancialEvent, extracted_data: dict, commit: bool = True) -> FinancialEvent:
     event.status = FinancialEventStatus.COMPLETED
     event.extracted_data = extracted_data
     event.missing_fields = []
 
     await repository.update_financial_event(db, event)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return event
 
 
-async def mark_needs_clarification(db: AsyncSession, event: FinancialEvent, missing_fields: list) -> FinancialEvent:
+async def mark_needs_clarification(db: AsyncSession, event: FinancialEvent, missing_fields: list, commit: bool = True) -> FinancialEvent:
     event.status = FinancialEventStatus.NEEDS_CLARIFICATION
     event.missing_fields = missing_fields
 
     await repository.update_financial_event(db, event)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return event
 
 
-async def mark_failed(db: AsyncSession, event: FinancialEvent, error: str) -> FinancialEvent:
+async def mark_failed(db: AsyncSession, event: FinancialEvent, error: str, commit: bool = True) -> FinancialEvent:
     event.status = FinancialEventStatus.FAILED
     event.error = error
 
     await repository.update_financial_event(db, event)
-    await db.commit()
+    if commit:
+        await db.commit()
 
     return event
 

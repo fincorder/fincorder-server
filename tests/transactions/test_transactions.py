@@ -108,3 +108,40 @@ async def test_create_transaction(client, db_session):
 
     assert response.status_code == 201
     assert Decimal(response.json()["amount"]) == Decimal("500.00")
+
+
+@pytest.mark.asyncio
+async def test_filter_transactions(client, db_session):
+    token = await register_and_login(client)
+    group_id, account_id, category_id = await setup_dependencies(
+        client,
+        db_session,
+        token,
+    )
+
+    for amount, description in (("500.00", "Petrol"), ("1200.00", "Groceries")):
+        response = await client.post(
+            "/transactions",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "transaction_group_id": str(group_id),
+                "account_id": account_id,
+                "category_id": category_id,
+                "type": "expense",
+                "direction": "debit",
+                "amount": amount,
+                "currency": "INR",
+                "description": description,
+                "transaction_date": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        assert response.status_code == 201
+
+    filtered = await client.get(
+        "/transactions",
+        params={"search": "Petrol", "type": "expense", "limit": 1},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert filtered.status_code == 200
+    assert len(filtered.json()) == 1
+    assert filtered.json()[0]["description"] == "Petrol"

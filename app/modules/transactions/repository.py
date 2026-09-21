@@ -28,8 +28,21 @@ async def get_transaction_by_id(db: AsyncSession, transaction_id, user_id) -> Tr
     return result.scalar_one_or_none()
 
 
-async def get_transactions(db: AsyncSession, user_id) -> list[Transaction]:
-    result = await db.execute(
+async def get_transactions(
+    db: AsyncSession,
+    user_id,
+    limit: int = 50,
+    offset: int = 0,
+    transaction_type=None,
+    direction=None,
+    account_id=None,
+    category_id=None,
+    person_id=None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    search: str | None = None,
+) -> list[Transaction]:
+    query = (
         select(Transaction)
         .options(
             joinedload(Transaction.account),
@@ -40,7 +53,30 @@ async def get_transactions(db: AsyncSession, user_id) -> list[Transaction]:
             Transaction.user_id == user_id,
             Transaction.deleted_at.is_(None),
         )
-        .order_by(Transaction.transaction_date.desc())
+    )
+
+    if transaction_type:
+        query = query.where(Transaction.type == transaction_type)
+    if direction:
+        query = query.where(Transaction.direction == direction)
+    if account_id:
+        query = query.where(Transaction.account_id == account_id)
+    if category_id:
+        query = query.where(Transaction.category_id == category_id)
+    if person_id:
+        query = query.where(Transaction.person_id == person_id)
+    if date_from:
+        query = query.where(Transaction.transaction_date >= date_from)
+    if date_to:
+        query = query.where(Transaction.transaction_date <= date_to)
+    if search:
+        query = query.where(Transaction.description.ilike(f"%{search}%"))
+
+    result = await db.execute(
+        query
+        .order_by(Transaction.transaction_date.desc(), Transaction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
 
     return list(result.scalars().all())
