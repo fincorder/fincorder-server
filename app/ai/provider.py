@@ -20,6 +20,17 @@ class AIProvider(ABC):
             f"People: {', '.join(context['people']) or 'None'}"
         )
 
+        if context.get("transactions"):
+            result += "\nRecent transactions (use the exact id for edits or deletions):\n"
+            for transaction in context["transactions"]:
+                result += (
+                    f"{transaction['id']} | {transaction['type']} | "
+                    f"{transaction['amount']} {transaction['currency']} | "
+                    f"{transaction['account']} | {transaction['category']} | "
+                    f"{transaction['person']} | {transaction['description']} | "
+                    f"{transaction['transaction_date']}\n"
+                )
+
         if context["messages"]:
             result += "\nConversation:\n"
 

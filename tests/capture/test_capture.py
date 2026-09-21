@@ -267,3 +267,85 @@ async def test_capture_defaults_account_when_missing(client):
 
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_capture_can_update_existing_transaction(client):
+    token = await register_and_login(client)
+
+    create_response = CaptureAIResponse(
+        status="completed",
+        transactions=[
+            AITransaction(
+                type="expense",
+                amount=500,
+                currency="INR",
+                account="Spending Account",
+                category="Transport",
+                description="Petrol",
+                direction="debit",
+            )
+        ],
+        assistant_message="Recorded your petrol expense.",
+        confidence=0.99,
+    )
+    update_response = CaptureAIResponse(
+        status="completed",
+        transactions=[
+            AITransaction(
+                operation="update",
+                transaction_id=None,
+                amount=650,
+                description="Petrol for scooter",
+            )
+        ],
+        assistant_message="Updated the transaction.",
+        confidence=0.99,
+    )
+
+    provider = AsyncMock()
+    provider.extract_financial_event.side_effect = [create_response, update_response]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        first = await client.post(
+            "/capture",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": "Paid ₹500 for petrol"},
+        )
+        assert first.status_code == 200
+        conversation_id = first.json()["conversation_id"]
+
+        transactions = await client.get(
+            "/transactions",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        transaction_id = transactions.json()[0]["id"]
+        provider.extract_financial_event.side_effect[1].transactions[0].transaction_id = transaction_id
+
+        second = await client.post(
+            "/capture",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "conversation_id": conversation_id,
+                "message": "Actually it was ₹650 for scooter petrol",
+            },
+        )
+        assert second.status_code == 200
+
+        updated = await client.get(
+            f"/transactions/{transaction_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["amount"] == "650.00"
+        assert updated.json()["description"] == "Petrol for scooter"
+
+        messages = await client.get(
+            f"/conversations/{conversation_id}/messages",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert messages.status_code == 200
+        assert messages.json()[-1]["role"] == "assistant"
+    finally:
+        app.dependency_overrides.clear()

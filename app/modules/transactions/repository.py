@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.transactions.models import Transaction
+from app.modules.transaction_groups.models import TransactionGroup
+from app.modules.financial_events.models import FinancialEvent
+from app.modules.conversations.models import Conversation
 
 
 async def create_transaction(db: AsyncSession, transaction: Transaction) -> Transaction:
@@ -27,6 +31,11 @@ async def get_transaction_by_id(db: AsyncSession, transaction_id, user_id) -> Tr
 async def get_transactions(db: AsyncSession, user_id) -> list[Transaction]:
     result = await db.execute(
         select(Transaction)
+        .options(
+            joinedload(Transaction.account),
+            joinedload(Transaction.category),
+            joinedload(Transaction.person),
+        )
         .where(
             Transaction.user_id == user_id,
             Transaction.deleted_at.is_(None),
@@ -35,6 +44,19 @@ async def get_transactions(db: AsyncSession, user_id) -> list[Transaction]:
     )
 
     return list(result.scalars().all())
+
+
+async def get_transaction_group_for_user(db: AsyncSession, transaction_group_id, user_id):
+    result = await db.execute(
+        select(TransactionGroup)
+        .join(FinancialEvent, TransactionGroup.financial_event_id == FinancialEvent.id)
+        .join(Conversation, FinancialEvent.conversation_id == Conversation.id)
+        .where(
+            TransactionGroup.id == transaction_group_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def update_transaction(db: AsyncSession, transaction: Transaction) -> Transaction:

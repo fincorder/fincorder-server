@@ -30,6 +30,15 @@ class UpdateTransactionRequest(BaseModel):
     account_id: UUID | None = None
     category_id: UUID | None = None
     person_id: UUID | None = None
+    type: Literal[
+        "expense",
+        "income",
+        "transfer",
+        "lend",
+        "borrow",
+        "repayment",
+    ] | None = None
+    direction: Literal["debit", "credit"] | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     description: str | None = None

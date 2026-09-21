@@ -9,6 +9,9 @@ from app.modules.transactions.models import (
     TransactionDirection,
     TransactionType,
 )
+from app.modules.accounts import repository as accounts_repository
+from app.modules.categories import repository as categories_repository
+from app.modules.people import repository as people_repository
 
 
 async def create_transaction(
@@ -25,6 +28,18 @@ async def create_transaction(
     description: str | None,
     transaction_date: datetime,
 ) -> Transaction:
+    if not await repository.get_transaction_group_for_user(db, transaction_group_id, user_id):
+        raise ValueError("Transaction group not found")
+
+    if not await accounts_repository.get_account_by_id(db, account_id, user_id):
+        raise ValueError("Account not found")
+
+    if category_id and not await categories_repository.get_category_by_id(db, category_id, user_id):
+        raise ValueError("Category not found")
+
+    if person_id and not await people_repository.get_person_by_id(db, person_id, user_id):
+        raise ValueError("Person not found")
+
     transaction = Transaction(
         transaction_group_id=transaction_group_id,
         user_id=user_id,
@@ -62,8 +77,20 @@ async def update_transaction(db: AsyncSession, transaction_id: uuid.UUID, user_i
     if not transaction:
         raise ValueError("Transaction not found")
 
+    if "account_id" in updates and updates["account_id"] is not None:
+        if not await accounts_repository.get_account_by_id(db, updates["account_id"], user_id):
+            raise ValueError("Account not found")
+
+    if "category_id" in updates and updates["category_id"] is not None:
+        if not await categories_repository.get_category_by_id(db, updates["category_id"], user_id):
+            raise ValueError("Category not found")
+
+    if "person_id" in updates and updates["person_id"] is not None:
+        if not await people_repository.get_person_by_id(db, updates["person_id"], user_id):
+            raise ValueError("Person not found")
+
     for field, value in updates.items():
-        if value is not None:
+        if field in {"account_id", "category_id", "person_id", "amount", "currency", "description", "transaction_date", "type", "direction"}:
             setattr(transaction, field, value)
 
     await repository.update_transaction(db, transaction)

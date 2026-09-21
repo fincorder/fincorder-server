@@ -1,10 +1,14 @@
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
 class AITransaction(BaseModel):
+    operation: Literal["create", "update", "delete"] = "create"
+    transaction_id: UUID | None = None
+
     type: Literal[
         "expense",
         "income",
@@ -12,9 +16,9 @@ class AITransaction(BaseModel):
         "lend",
         "borrow",
         "repayment",
-    ]
+    ] | None = None
 
-    amount: Decimal
+    amount: Decimal | None = None
     currency: str = "INR"
 
     account: str | None = None
@@ -23,6 +27,7 @@ class AITransaction(BaseModel):
 
     description: str | None = None
     transaction_date: str | None = None
+    clear_fields: list[str] = Field(default_factory=list)
 
     direction: Literal["debit", "credit"] | None = None
 

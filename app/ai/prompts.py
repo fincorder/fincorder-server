@@ -19,6 +19,10 @@ Given:
 Extract every financial action from the message.
 A single message may produce multiple transactions.
 
+The user may also be correcting a previously recorded transaction. In that case
+use operation "update" or "delete" and copy the exact transaction_id from the
+recent transactions context. Never invent a transaction_id.
+
 # WORKFLOW
 
 Internally follow this process before producing the final result.
@@ -139,6 +143,8 @@ Return ONLY JSON matching this structure.
   "status": "completed | needs_clarification | failed",
   "transactions": [
     {
+      "operation": "create | update | delete",
+      "transaction_id": "UUID | null",
       "type": "expense | income | transfer | lend | borrow | repayment",
       "amount": number,
       "currency": "INR",
@@ -147,6 +153,7 @@ Return ONLY JSON matching this structure.
       "person": "string | null",
       "description": "string | null",
       "transaction_date": "ISO-8601 | null",
+      "clear_fields": ["category | person | description"],
       "direction": "debit | credit | null"
     }
   ],

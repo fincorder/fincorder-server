@@ -19,20 +19,26 @@ async def create_transaction_controller(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await create_transaction(
-        db=db,
-        transaction_group_id=data.transaction_group_id,
-        user_id=current_user.id,
-        account_id=data.account_id,
-        category_id=data.category_id,
-        person_id=data.person_id,
-        transaction_type=TransactionType(data.type),
-        direction=TransactionDirection(data.direction),
-        amount=data.amount,
-        currency=data.currency.upper(),
-        description=data.description,
-        transaction_date=data.transaction_date,
-    )
+    try:
+        return await create_transaction(
+            db=db,
+            transaction_group_id=data.transaction_group_id,
+            user_id=current_user.id,
+            account_id=data.account_id,
+            category_id=data.category_id,
+            person_id=data.person_id,
+            transaction_type=TransactionType(data.type),
+            direction=TransactionDirection(data.direction),
+            amount=data.amount,
+            currency=data.currency.upper(),
+            description=data.description,
+            transaction_date=data.transaction_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
 
 
 @router.get("", response_model=list[TransactionResponse])
@@ -66,17 +72,19 @@ async def update_transaction_controller(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        updates = data.model_dump(exclude_unset=True)
+        if "type" in updates and updates["type"] is not None:
+            updates["type"] = TransactionType(updates["type"])
+        if "direction" in updates and updates["direction"] is not None:
+            updates["direction"] = TransactionDirection(updates["direction"])
+        if "currency" in updates and updates["currency"] is not None:
+            updates["currency"] = updates["currency"].upper()
+
         return await update_transaction(
             db=db,
             transaction_id=transaction_id,
             user_id=current_user.id,
-            account_id=data.account_id,
-            category_id=data.category_id,
-            person_id=data.person_id,
-            amount=data.amount,
-            currency=data.currency.upper() if data.currency else None,
-            description=data.description,
-            transaction_date=data.transaction_date,
+            **updates,
         )
     except ValueError as exc:
         raise HTTPException(

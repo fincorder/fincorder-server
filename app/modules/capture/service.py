@@ -52,10 +52,19 @@ async def capture_message(db: AsyncSession, user, message: str, conversation_id,
     # 8. Process AI response
     needs_clarification = await process_ai_response(db=db, user=user, financial_event=financial_event, ai_response=ai_response)
 
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=ai_response.assistant_message,
+    )
+    await messages_repository.create_message(db, assistant_message)
+    await db.commit()
+
     # 9. Return response
     return CaptureResponse(
         conversation_id=conversation.id,
         message_id=user_message.id,
+        assistant_message_id=assistant_message.id,
         financial_event_id=financial_event.id,
         status=ai_response.status,
         assistant_message=ai_response.assistant_message,
@@ -75,9 +84,65 @@ async def process_ai_response(db: AsyncSession, user, financial_event, ai_respon
         await financial_events_service.mark_failed(db=db, event=financial_event, error=ai_response.assistant_message)
         return False
 
-    transaction_group = await transaction_groups_service.create_transaction_group(db=db, financial_event_id=financial_event.id)
+    create_transactions = [transaction for transaction in ai_response.transactions if transaction.operation == "create"]
+    transaction_group = None
+    if create_transactions:
+        transaction_group = await transaction_groups_service.create_transaction_group(db=db, financial_event_id=financial_event.id)
 
     for txn in ai_response.transactions:
+        if txn.operation == "delete":
+            if not txn.transaction_id:
+                raise ValueError("Transaction id is required for deletion")
+            await transactions_service.delete_transaction(db, txn.transaction_id, user.id)
+            continue
+
+        if txn.operation == "update":
+            if not txn.transaction_id:
+                raise ValueError("Transaction id is required for update")
+
+            updates = {}
+            for field in ("type", "direction", "amount", "currency", "description", "transaction_date"):
+                value = getattr(txn, field)
+                if value is not None:
+                    updates[field] = value
+
+            if txn.account:
+                updates["account_id"] = await resolve_account_id(db, user.id, txn.account)
+            if txn.category:
+                category_id = await resolve_category_id(db, user.id, txn.category)
+                if category_id is None:
+                    raise ValueError(f"Category '{txn.category}' not found")
+                updates["category_id"] = category_id
+            if txn.person:
+                person_id = await resolve_person_id(db, user.id, txn.person)
+                if person_id is None:
+                    raise ValueError(f"Person '{txn.person}' not found")
+                updates["person_id"] = person_id
+
+            for field in txn.clear_fields:
+                if field in {"category", "person", "description"}:
+                    updates[
+                        {
+                            "category": "category_id",
+                            "person": "person_id",
+                            "description": "description",
+                        }[field]
+                    ] = None
+
+            if not updates:
+                raise ValueError("At least one transaction field is required for update")
+
+            if "type" in updates:
+                updates["type"] = TransactionType(updates["type"])
+            if "direction" in updates:
+                updates["direction"] = TransactionDirection(updates["direction"])
+
+            await transactions_service.update_transaction(db, txn.transaction_id, user.id, **updates)
+            continue
+
+        if txn.type is None or txn.amount is None or txn.direction is None:
+            raise ValueError("Transaction type, amount, and direction are required")
+
         await transactions_service.create_transaction(
             db=db,
             transaction_group_id=transaction_group.id,
@@ -93,7 +158,8 @@ async def process_ai_response(db: AsyncSession, user, financial_event, ai_respon
             transaction_date=datetime.fromisoformat(txn.transaction_date) if txn.transaction_date else datetime.now(timezone.utc),
         )
 
-    await transaction_groups_service.mark_posted(db=db, transaction_group=transaction_group)
+    if transaction_group:
+        await transaction_groups_service.mark_posted(db=db, transaction_group=transaction_group)
     await financial_events_service.mark_completed(db=db, event=financial_event, extracted_data=ai_response.model_dump(mode="json"))
 
     return False

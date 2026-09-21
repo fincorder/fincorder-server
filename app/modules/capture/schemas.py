@@ -11,6 +11,7 @@ class CaptureRequest(BaseModel):
 class CaptureResponse(BaseModel):
     conversation_id: UUID
     message_id: UUID
+    assistant_message_id: UUID | None = None
     financial_event_id: UUID
 
     status: str
