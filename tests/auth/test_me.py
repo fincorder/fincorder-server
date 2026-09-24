@@ -49,3 +49,33 @@ async def test_me_invalid_token(client):
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_update_me_success(client):
+    await client.post(
+        "/auth/register",
+        json={
+            "name": "Aashir",
+            "email": "profile@example.com",
+            "password": "password123",
+        },
+    )
+
+    login = await client.post(
+        "/auth/login",
+        json={
+            "email": "profile@example.com",
+            "password": "password123",
+        },
+    )
+
+    token = login.json()["access_token"]
+    response = await client.patch(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Aashir Mohamed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Aashir Mohamed"

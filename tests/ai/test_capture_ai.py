@@ -111,7 +111,12 @@ async def test_openai_provider_passes_context():
     )
 
     mock_response = MagicMock()
-    mock_response.output_parsed = capture_response
+    mock_response.status = "completed"
+    call = MagicMock()
+    call.type = "function_call"
+    call.name = "propose_transactions"
+    call.arguments = capture_response.model_dump_json()
+    mock_response.output = [call]
 
     context = context = {
         "today": "2026-08-31",
@@ -132,7 +137,7 @@ async def test_openai_provider_passes_context():
 
     with patch.object(
         provider.client.responses,
-        "parse",
+        "create",
         new_callable=AsyncMock,
         return_value=mock_response,
     ) as mock_parse:
@@ -148,7 +153,7 @@ async def test_openai_provider_passes_context():
 
     assert call_kwargs["model"] == provider.model
     assert call_kwargs["instructions"]
-    assert call_kwargs["text_format"] is CaptureAIResponse
+    assert call_kwargs["tools"][0]["name"] == "propose_transactions"
 
     input_messages = call_kwargs["input"]
 

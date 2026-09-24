@@ -16,6 +16,7 @@ from app.modules.financial_events.controller import router as financial_events_r
 from app.modules.transaction_groups.controller import router as transaction_groups_router
 from app.modules.transactions.controller import router as transactions_router
 from app.modules.capture.controller import router as capture_router
+from app.modules.reports.controller import router as reports_router
 
 
 configure_logging()
@@ -55,3 +56,4 @@ app.include_router(financial_events_router)
 app.include_router(transaction_groups_router)
 app.include_router(transactions_router)
 app.include_router(capture_router)
+app.include_router(reports_router)

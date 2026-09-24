@@ -80,6 +80,25 @@ async def login_user(db: AsyncSession, email: str, password: str) -> User:
     return user, session_token
 
 
+async def update_user_profile(db: AsyncSession, user: User, name: str | None = None, review_transactions: bool | None = None, timezone: str | None = None) -> User:
+    if name is not None:
+        if not name.strip():
+            raise ValueError("Name cannot be blank")
+        user.name = name.strip()
+    if review_transactions is not None:
+        user.review_transactions = review_transactions
+    if timezone is not None:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Unknown timezone") from exc
+        user.timezone = timezone
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def logout_user(db: AsyncSession, token: str) -> None:
     "Logout user and revoke session"
     token_hash = hash_session_token(token)

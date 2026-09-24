@@ -48,4 +48,5 @@ class Message(Base):
         "FinancialEvent",
         back_populates="source_message",
         cascade="all, delete-orphan",
+        foreign_keys="FinancialEvent.source_message_id",
     )

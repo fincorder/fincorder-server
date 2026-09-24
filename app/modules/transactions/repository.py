@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,11 +28,8 @@ async def get_transaction_by_id(db: AsyncSession, transaction_id, user_id) -> Tr
     return result.scalar_one_or_none()
 
 
-async def get_transactions(
-    db: AsyncSession,
+def _transaction_query(
     user_id,
-    limit: int = 50,
-    offset: int = 0,
     transaction_type=None,
     direction=None,
     account_id=None,
@@ -41,18 +38,10 @@ async def get_transactions(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
-) -> list[Transaction]:
-    query = (
-        select(Transaction)
-        .options(
-            joinedload(Transaction.account),
-            joinedload(Transaction.category),
-            joinedload(Transaction.person),
-        )
-        .where(
-            Transaction.user_id == user_id,
-            Transaction.deleted_at.is_(None),
-        )
+):
+    query = select(Transaction).where(
+        Transaction.user_id == user_id,
+        Transaction.deleted_at.is_(None),
     )
 
     if transaction_type:
@@ -71,15 +60,88 @@ async def get_transactions(
         query = query.where(Transaction.transaction_date <= date_to)
     if search:
         query = query.where(Transaction.description.ilike(f"%{search}%"))
+    return query
+
+
+def _sorted_query(query, sort_by: str = "transaction_date", sort_order: str = "desc"):
+    columns = {
+        "transaction_date": Transaction.transaction_date,
+        "amount": Transaction.amount,
+        "created_at": Transaction.created_at,
+    }
+    column = columns.get(sort_by, Transaction.transaction_date)
+    ordering = column.asc() if sort_order == "asc" else column.desc()
+    return query.order_by(ordering, Transaction.created_at.desc())
+
+
+async def get_transactions(
+    db: AsyncSession,
+    user_id,
+    limit: int = 50,
+    offset: int = 0,
+    transaction_type=None,
+    direction=None,
+    account_id=None,
+    category_id=None,
+    person_id=None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    search: str | None = None,
+    sort_by: str = "transaction_date",
+    sort_order: str = "desc",
+) -> list[Transaction]:
+    query = (
+        _sorted_query(_transaction_query(
+            user_id=user_id,
+            transaction_type=transaction_type,
+            direction=direction,
+            account_id=account_id,
+            category_id=category_id,
+            person_id=person_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+        ), sort_by, sort_order)
+        .options(
+            joinedload(Transaction.account),
+            joinedload(Transaction.category),
+            joinedload(Transaction.person),
+        )
+    )
 
     result = await db.execute(
         query
-        .order_by(Transaction.transaction_date.desc(), Transaction.created_at.desc())
         .offset(offset)
         .limit(limit)
     )
 
     return list(result.scalars().all())
+
+
+async def get_transactions_page(db: AsyncSession, user_id, **filters) -> tuple[list[Transaction], int]:
+    query = _transaction_query(
+        user_id=user_id,
+        transaction_type=filters.get("transaction_type"),
+        direction=filters.get("direction"),
+        account_id=filters.get("account_id"),
+        category_id=filters.get("category_id"),
+        person_id=filters.get("person_id"),
+        date_from=filters.get("date_from"),
+        date_to=filters.get("date_to"),
+        search=filters.get("search"),
+    )
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    result = await db.execute(
+        _sorted_query(query, filters.get("sort_by", "transaction_date"), filters.get("sort_order", "desc"))
+        .options(
+            joinedload(Transaction.account),
+            joinedload(Transaction.category),
+            joinedload(Transaction.person),
+        )
+        .offset(filters.get("offset", 0))
+        .limit(filters.get("limit", 50))
+    )
+    return list(result.scalars().all()), int(total or 0)
 
 
 async def get_transaction_group_for_user(db: AsyncSession, transaction_group_id, user_id):

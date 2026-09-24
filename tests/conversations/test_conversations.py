@@ -121,6 +121,38 @@ async def test_archive_conversation(client):
 
 
 @pytest.mark.asyncio
+async def test_archived_conversation_is_removed_from_active_list(client):
+    token = await register_and_login(client)
+
+    created = await client.post(
+        "/conversations",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Temporary Chat"},
+    )
+    conversation_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/conversations/{conversation_id}/archive",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "archived"
+
+    listed = await client.get(
+        "/conversations",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert all(conversation["id"] != conversation_id for conversation in listed.json())
+
+    archived = await client.get(
+        f"/conversations/{conversation_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert archived.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_conversation_not_found(client):
     token = await register_and_login(client)
 

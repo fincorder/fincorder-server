@@ -12,7 +12,16 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     id: UUID
     name: str
+    email: EmailStr | None = None
     status: str
+    review_transactions: bool = True
+    timezone: str = "UTC"
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    review_transactions: bool | None = None
+    timezone: str | None = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
@@ -23,6 +32,9 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     id: UUID
     name: str
+    email: EmailStr | None = None
     status: str
+    review_transactions: bool = True
+    timezone: str = "UTC"
     access_token: str
     token_type: str = "bearer"

@@ -145,3 +145,65 @@ async def test_filter_transactions(client, db_session):
     assert filtered.status_code == 200
     assert len(filtered.json()) == 1
     assert filtered.json()[0]["description"] == "Petrol"
+
+
+@pytest.mark.asyncio
+async def test_paginated_transactions_endpoint(client, db_session):
+    token = await register_and_login(client)
+    group_id, account_id, category_id = await setup_dependencies(client, db_session, token)
+
+    for amount in ("500.00", "1200.00"):
+        response = await client.post(
+            "/transactions",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "transaction_group_id": str(group_id),
+                "account_id": account_id,
+                "category_id": category_id,
+                "type": "expense",
+                "direction": "debit",
+                "amount": amount,
+                "currency": "INR",
+                "description": "Paged entry",
+                "transaction_date": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        assert response.status_code == 201
+
+    page = await client.get(
+        "/transactions/page",
+        params={"limit": 1, "offset": 0, "sort_by": "amount", "sort_order": "desc"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert page.status_code == 200
+    assert page.json()["total"] == 2
+    assert len(page.json()["items"]) == 1
+    assert page.json()["has_next"] is True
+    assert page.json()["items"][0]["amount"] == "1200.00"
+
+
+@pytest.mark.asyncio
+async def test_create_manual_transaction(client):
+    token = await register_and_login(client)
+    accounts = await client.get("/accounts", headers={"Authorization": f"Bearer {token}"})
+    categories = await client.get("/categories", headers={"Authorization": f"Bearer {token}"})
+    account_id = next(account["id"] for account in accounts.json() if account["is_default"])
+    category_id = next(category["id"] for category in categories.json() if category["name"] == "Food")
+
+    response = await client.post(
+        "/transactions/manual",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "account_id": account_id,
+            "category_id": category_id,
+            "type": "expense",
+            "direction": "debit",
+            "amount": "275.00",
+            "currency": "INR",
+            "description": "Manual coffee entry",
+            "transaction_date": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["description"] == "Manual coffee entry"

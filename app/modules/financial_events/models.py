@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Text
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Text, Integer
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,8 @@ class FinancialEventStatus(str, Enum):
     NEEDS_CLARIFICATION = "needs_clarification"
     COMPLETED = "completed"
     FAILED = "failed"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
+    REJECTED = "rejected"
 
 
 class FinancialEvent(Base):
@@ -44,6 +46,8 @@ class FinancialEvent(Base):
         Text,
         nullable=False,
     )
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     extracted_data: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -76,6 +80,7 @@ class FinancialEvent(Base):
     source_message = relationship(
         "Message",
         back_populates="financial_events",
+        foreign_keys=[source_message_id],
     )
 
     transaction_groups = relationship(

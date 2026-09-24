@@ -20,6 +20,16 @@ async def get_identity_by_email(db: AsyncSession, email: str) -> UserIdentity | 
     return result.scalar_one_or_none()
 
 
+async def get_identity_by_user_id(db: AsyncSession, user_id: uuid.UUID) -> UserIdentity | None:
+    """Fetch the primary identity for a user."""
+    result = await db.execute(
+        select(UserIdentity)
+        .where(UserIdentity.user_id == user_id)
+        .order_by(UserIdentity.created_at)
+    )
+    return result.scalars().first()
+
+
 async def create_user(db: AsyncSession, user: User) -> User:
     """Create new user"""
     db.add(user)

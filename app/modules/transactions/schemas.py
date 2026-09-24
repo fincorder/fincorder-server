@@ -57,3 +57,30 @@ class TransactionResponse(BaseModel):
     currency: str
     description: str | None
     transaction_date: datetime
+
+
+class TransactionPageResponse(BaseModel):
+    items: list[TransactionResponse]
+    total: int
+    limit: int
+    offset: int
+    has_next: bool
+
+
+class CreateManualTransactionRequest(BaseModel):
+    account_id: UUID
+    category_id: UUID | None = None
+    person_id: UUID | None = None
+    type: Literal[
+        "expense",
+        "income",
+        "transfer",
+        "lend",
+        "borrow",
+        "repayment",
+    ]
+    direction: Literal["debit", "credit"]
+    amount: Decimal = Field(gt=0)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    description: str | None = None
+    transaction_date: datetime

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import String, DateTime, Enum
+from sqlalchemy import String, DateTime, Enum, Boolean
 
 from app.core.database import Base
 
@@ -17,6 +17,8 @@ class User(Base):
         default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
+    review_transactions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     status: Mapped[str] = mapped_column(
         Enum("active", "suspended", "deleted", name="user_status"),
         nullable=False,

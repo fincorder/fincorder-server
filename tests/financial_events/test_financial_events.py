@@ -1,8 +1,10 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 import pytest
 
 from app.modules.financial_events.service import create_financial_event
+from app.modules.financial_events.models import FinancialEventStatus
 
 
 async def register_and_login(client):
@@ -104,6 +106,39 @@ async def test_get_financial_events_by_conversation(client, db_session):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_get_review_events_page_filters_pending_work(client, db_session):
+    token = await register_and_login(client)
+    conversation_id = UUID(await create_conversation(client, token))
+    message = await create_message(client, token, str(conversation_id))
+    user = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    user_id = UUID(user.json()["id"])
+
+    event = await create_financial_event(
+        db=db_session,
+        conversation_id=conversation_id,
+        source_message_id=UUID(message["id"]),
+        user_id=user_id,
+        raw_text=message["content"],
+        commit=False,
+    )
+    event.status = FinancialEventStatus.AWAITING_CONFIRMATION
+    event.extracted_data = {"transactions": [{"amount": 500, "description": "Petrol"}]}
+    event.created_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    response = await client.get(
+        "/financial-events/review",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"search": "petrol", "month": datetime.now().strftime("%Y-%m")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["status"] == "awaiting_confirmation"
+    assert response.json()["items"][0]["conversation_title"] == "Test Chat"
 
 
 @pytest.mark.asyncio

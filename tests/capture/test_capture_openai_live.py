@@ -22,6 +22,7 @@ async def test_live_capture_creates_and_updates_transaction(client, item, day):
     })
     assert login.status_code == 200
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    await client.patch("/auth/me", headers=headers, json={"review_transactions": False})
 
     provider = OpenAIProvider()
     app.dependency_overrides[get_ai_provider] = lambda: provider
@@ -57,5 +58,38 @@ async def test_live_capture_creates_and_updates_transaction(client, item, day):
             assert datetime.fromisoformat(updated["transaction_date"]) == datetime.fromisoformat(original["transaction_date"])
             for field in ("account_id", "category_id", "person_id", "type", "direction", "currency", "description"):
                 assert updated[field] == original[field]
+    finally:
+        app.dependency_overrides.pop(get_ai_provider, None)
+
+
+@pytest.mark.skipif(os.getenv("FINCORDER_LIVE_AI") != "1", reason="Requires a live OpenAI request")
+@pytest.mark.asyncio
+async def test_live_multiturn_lending_and_cash(client):
+    from tests.capture.test_capture import register_and_login, auth, post_capture
+    token = await register_and_login(client)
+    await client.patch('/auth/me', headers=auth(token), json={"review_transactions": False})
+    await client.post('/people', headers=auth(token), json={"name": "Farooq"})
+    provider = OpenAIProvider()
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+    try:
+        async with provider.client:
+            first = await post_capture(client, token, "Lent 350")
+            assert first.status_code == 200, first.text
+            assert first.json()["status"] == "needs_clarification", first.text
+            conversation = first.json()["conversation_id"]
+            second = await post_capture(client, token, "Farooq", conversation)
+            assert second.json()["status"] == "completed", second.text
+            third = await post_capture(client, token, "Spent 750 today by cash", conversation)
+            assert third.json()["status"] == "needs_clarification", third.text
+            fourth = await post_capture(client, token, "Wifi recharge", conversation)
+            assert fourth.json()["status"] == "completed", fourth.text
+            transactions = (await client.get('/transactions', headers=auth(token))).json()
+            assert len(transactions) == 2
+            lend = next(t for t in transactions if t["type"] == "lend")
+            assert Decimal(lend["amount"]) == 350
+            expense = next(t for t in transactions if t["type"] == "expense")
+            assert Decimal(expense["amount"]) == 750
+            accounts = (await client.get('/accounts', headers=auth(token))).json()
+            assert expense["account_id"] == next(a["id"] for a in accounts if a["name"] == "Cash")
     finally:
         app.dependency_overrides.pop(get_ai_provider, None)

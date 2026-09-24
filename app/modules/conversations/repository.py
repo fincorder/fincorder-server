@@ -17,6 +17,7 @@ async def get_conversation_by_id(db: AsyncSession, conversation_id, user_id) -> 
         select(Conversation).where(
             Conversation.id == conversation_id,
             Conversation.user_id == user_id,
+            Conversation.status == ConversationStatus.ACTIVE,
         )
     )
 
@@ -27,7 +28,10 @@ async def get_conversations(db: AsyncSession, user_id) -> list[Conversation]:
     """Get list of conversations of a user"""
     result = await db.execute(
         select(Conversation)
-        .where(Conversation.user_id == user_id)
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.status == ConversationStatus.ACTIVE,
+        )
         .order_by(Conversation.updated_at.desc())
     )
 

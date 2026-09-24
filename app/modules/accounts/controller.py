@@ -25,6 +25,7 @@ async def create_account_controller(
             user_id=current_user.id,
             name=data.name,
             currency=data.currency.upper(),
+            is_default=data.is_default,
         )
         return account
     except ValueError as exc:
@@ -71,6 +72,7 @@ async def update_account_controller(
             user_id=current_user.id,
             name=data.name,
             currency=data.currency.upper() if data.currency else None,
+            is_default=data.is_default,
         )
     except ValueError as exc:
         raise HTTPException(

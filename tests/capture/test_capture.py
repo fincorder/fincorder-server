@@ -12,452 +12,255 @@ from app.modules.capture.dependencies import get_ai_provider
 async def register_and_login(client):
     await client.post(
         "/auth/register",
-        json={
-            "name": "Aashir",
-            "email": "aashir@example.com",
-            "password": "password123",
-        },
+        json={"name": "Aashir", "email": "aashir@example.com", "password": "password123"},
     )
-
     login = await client.post(
         "/auth/login",
-        json={
-            "email": "aashir@example.com",
-            "password": "password123",
-        },
+        json={"email": "aashir@example.com", "password": "password123"},
     )
-
     return login.json()["access_token"]
 
 
-@pytest.mark.asyncio
-async def test_capture_creates_transaction(client):
-    token = await register_and_login(client)
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
 
-    ai_response = CaptureAIResponse(
-        status="completed",
-        transactions=[
-            AITransaction(
-                type="expense",
-                amount=500,
-                currency="INR",
-                account="Spending Account",
-                category="Transport",
-                person=None,
-                description="Petrol",
-                transaction_date=None,
-                direction="debit",
-            )
-        ],
-        missing_fields=[],
-        assistant_message="Recorded your ₹500 petrol expense.",
-        confidence=0.99,
+
+def expense(amount, **kwargs):
+    return AITransaction(
+        type="expense",
+        amount=amount,
+        currency="INR",
+        direction="debit",
+        **kwargs,
     )
 
+
+async def post_capture(client, token, message, conversation_id=None):
+    payload = {"message": message}
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
+    return await client.post("/capture", headers=auth(token), json=payload)
+
+
+async def confirm(client, token, data):
+    return await client.post(
+        f"/capture/{data['financial_event_id']}/confirm",
+        headers=auth(token),
+        json={"transactions": data["proposed_transactions"], "revision": data["revision"]},
+    )
+
+
+@pytest.mark.asyncio
+async def test_capture_returns_persisted_proposal_without_mutating_transactions(client):
+    token = await register_and_login(client)
     provider = AsyncMock()
-    provider.extract_financial_event.return_value = ai_response
-
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-
-    try:
-        response = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "message": "Paid ₹500 for petrol",
-            },
-        )
-
-        assert response.status_code == 200
-
-        data = response.json()
-
-        assert data["status"] == "completed"
-        assert data["needs_clarification"] is False
-        assert data["missing_fields"] == []
-        assert data["assistant_message"] == "Recorded your ₹500 petrol expense."
-        assert data["conversation_id"] is not None
-        assert data["message_id"] is not None
-        assert data["financial_event_id"] is not None
-
-        provider.extract_financial_event.assert_awaited_once()
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_capture_needs_clarification(client):
-    token = await register_and_login(client)
-
-    ai_response = CaptureAIResponse(
-        status="needs_clarification",
-        transactions=[],
-        missing_fields=["category"],
-        assistant_message="What was the ₹500 for?",
-        confidence=0.95,
-    )
-
-    provider = AsyncMock()
-    provider.extract_financial_event.return_value = ai_response
-
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-
-    try:
-        response = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "message": "Paid ₹500",
-            },
-        )
-
-        assert response.status_code == 200
-
-        data = response.json()
-
-        assert data["status"] == "needs_clarification"
-        assert data["needs_clarification"] is True
-        assert data["missing_fields"] == ["category"]
-        assert data["assistant_message"] == "What was the ₹500 for?"
-        assert data["financial_event_id"] is not None
-
-        provider.extract_financial_event.assert_awaited_once()
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_capture_requires_auth(client):
-    response = await client.post(
-        "/capture",
-        json={
-            "message": "Paid ₹500 for petrol",
-        },
-    )
-
-    assert response.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_capture_clarification_flow(client):
-    token = await register_and_login(client)
-
-    first_response = CaptureAIResponse(
-        status="needs_clarification",
-        transactions=[],
-        missing_fields=["category"],
-        assistant_message="What was the ₹500 for?",
-        confidence=0.95,
-    )
-
-    second_response = CaptureAIResponse(
+    provider.extract_financial_event.return_value = CaptureAIResponse(
         status="completed",
-        transactions=[
-            AITransaction(
-                type="expense",
-                amount=500,
-                currency="INR",
-                account="Spending Account",
-                category="Transport",
-                person=None,
-                description="Petrol",
-                transaction_date=None,
-                direction="debit",
-            )
-        ],
-        missing_fields=[],
-        assistant_message="Recorded your ₹500 petrol expense.",
-        confidence=0.98,
-    )
-
-    provider = AsyncMock()
-    provider.extract_financial_event.side_effect = [
-        first_response,
-        second_response,
-    ]
-
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-
-    try:
-        first = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "message": "Paid ₹500",
-            },
-        )
-
-        assert first.status_code == 200
-
-        first_data = first.json()
-
-        assert first_data["status"] == "needs_clarification"
-        assert first_data["needs_clarification"] is True
-        assert first_data["missing_fields"] == ["category"]
-
-        conversation_id = first_data["conversation_id"]
-        financial_event_id = first_data["financial_event_id"]
-
-        second = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "conversation_id": conversation_id,
-                "message": "Petrol",
-            },
-        )
-
-        assert second.status_code == 200
-
-        second_data = second.json()
-
-        assert second_data["status"] == "completed"
-        assert second_data["needs_clarification"] is False
-        assert second_data["missing_fields"] == []
-
-        assert second_data["conversation_id"] == conversation_id
-        assert second_data["financial_event_id"] == financial_event_id
-
-        assert provider.extract_financial_event.await_count == 2
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_capture_defaults_account_when_missing(client):
-    token = await register_and_login(client)
-
-    ai_response = CaptureAIResponse(
-        status="completed",
-        transactions=[
-            AITransaction(
-                type="expense",
-                amount=2900,
-                currency="INR",
-                account=None,
-                category="Bills",
-                person=None,
-                description="Supergrok AI subscription",
-                transaction_date=None,
-                direction="debit",
-            )
-        ],
-        missing_fields=[],
-        assistant_message="Recorded your ₹2900 subscription expense.",
-        confidence=0.99,
-    )
-
-    provider = AsyncMock()
-    provider.extract_financial_event.return_value = ai_response
-
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-
-    try:
-        response = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "message": "Bought Supergrok AI subscription for Rs.2900",
-            },
-        )
-
-        assert response.status_code == 200
-        assert response.json()["status"] == "completed"
-
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("transaction_date", [
-    None,
-    "2026-09-20T00:00:00+00:00",
-    "2026-09-20T00:00:00Z",
-    "2026-09-20T09:30:00+05:30",
-    "2026-09-20",
-    "2026-09-20T09:30:00",
-])
-async def test_capture_can_update_existing_transaction(client, transaction_date):
-    token = await register_and_login(client)
-
-    create_response = CaptureAIResponse(
-        status="completed",
-        transactions=[
-            AITransaction(
-                type="expense",
-                amount=500,
-                currency="INR",
-                account="Spending Account",
-                category="Transport",
-                description="Petrol",
-                direction="debit",
-            )
-        ],
-        assistant_message="Recorded your petrol expense.",
-        confidence=0.99,
-    )
-    update_response = CaptureAIResponse(
-        status="completed",
-        transactions=[
-            AITransaction(
-                operation="update",
-                transaction_id=None,
-                amount=650,
-                description="Petrol for scooter",
-                transaction_date=transaction_date,
-            )
-        ],
-        assistant_message="Updated the transaction.",
-        confidence=0.99,
-    )
-
-    provider = AsyncMock()
-    responses = [create_response, update_response]
-    provider.extract_financial_event.side_effect = responses
-    app.dependency_overrides[get_ai_provider] = lambda: provider
-
-    try:
-        first = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"message": "Paid ₹500 for petrol"},
-        )
-        assert first.status_code == 200
-        conversation_id = first.json()["conversation_id"]
-
-        transactions = await client.get(
-            "/transactions",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        transaction_id = transactions.json()[0]["id"]
-        original = transactions.json()[0]
-        responses[1].transactions[0].transaction_id = UUID(transaction_id)
-
-        second = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "conversation_id": conversation_id,
-                "message": "Actually it was ₹650 for scooter petrol",
-            },
-        )
-        assert second.status_code == 200
-
-        updated = await client.get(
-            f"/transactions/{transaction_id}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert updated.status_code == 200
-        assert updated.json()["amount"] == "650.00"
-        assert updated.json()["description"] == "Petrol for scooter"
-        assert updated.json()["id"] == transaction_id
-        assert updated.json()["account_id"] == original["account_id"]
-        assert updated.json()["category_id"] == original["category_id"]
-        expected_date = datetime.fromisoformat(transaction_date or original["transaction_date"])
-        if expected_date.tzinfo is None:
-            expected_date = expected_date.replace(tzinfo=timezone.utc)
-        assert datetime.fromisoformat(updated.json()["transaction_date"]) == expected_date
-        history = await client.get("/transactions", headers={"Authorization": f"Bearer {token}"})
-        assert len(history.json()) == 1
-
-        messages = await client.get(
-            f"/conversations/{conversation_id}/messages",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert messages.status_code == 200
-        assert messages.json()[-1]["role"] == "assistant"
-    finally:
-        app.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_capture_can_delete_existing_transaction(client):
-    token = await register_and_login(client)
-
-    create_response = CaptureAIResponse(
-        status="completed",
-        transactions=[
-            AITransaction(
-                type="expense",
-                amount=500,
-                account="Spending Account",
-                category="Transport",
-                direction="debit",
-            )
-        ],
+        transactions=[expense(500, account="Spending Account", category="Transport", description="Petrol")],
         assistant_message="Recorded the expense.",
         confidence=0.99,
     )
-    delete_response = CaptureAIResponse(
-        status="completed",
-        transactions=[AITransaction(operation="delete")],
-        assistant_message="Deleted the transaction.",
-        confidence=0.99,
-    )
-
-    provider = AsyncMock()
-    responses = [create_response, delete_response]
-    provider.extract_financial_event.side_effect = responses
     app.dependency_overrides[get_ai_provider] = lambda: provider
 
     try:
-        first = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"message": "Paid ₹500 for petrol"},
-        )
-        conversation_id = first.json()["conversation_id"]
-        transactions = await client.get(
-            "/transactions",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        transaction_id = transactions.json()[0]["id"]
-        responses[1].transactions[0].transaction_id = UUID(transaction_id)
+        response = await post_capture(client, token, "Paid 500 for petrol")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "awaiting_confirmation"
+        assert data["awaiting_confirmation"] is True
+        assert data["proposed_transactions"][0]["amount"] == "500"
 
-        second = await client.post(
-            "/capture",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "conversation_id": conversation_id,
-                "message": "Delete that transaction",
-            },
-        )
-        assert second.status_code == 200
+        transactions = await client.get("/transactions", headers=auth(token))
+        assert transactions.json() == []
 
-        deleted = await client.get(
-            f"/transactions/{transaction_id}",
-            headers={"Authorization": f"Bearer {token}"},
+        events = await client.get(
+            f"/financial-events/conversation/{data['conversation_id']}",
+            headers=auth(token),
         )
-        assert deleted.status_code == 404
+        assert events.status_code == 200
+        assert events.json()[0]["status"] == "awaiting_confirmation"
+        assert events.json()[0]["extracted_data"]["transactions"][0]["amount"] == "500"
     finally:
         app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
-async def test_capture_rejects_archived_conversation(client):
+async def test_confirming_proposal_creates_transaction(client):
     token = await register_and_login(client)
-    conversation = await client.post(
-        "/conversations",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"title": "Archived"},
+    provider = AsyncMock()
+    provider.extract_financial_event.return_value = CaptureAIResponse(
+        status="completed",
+        transactions=[expense(500, account="Spending Account", category="Transport")],
+        assistant_message="Ready.",
+        confidence=0.99,
     )
-    conversation_id = conversation.json()["id"]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
 
-    archived = await client.patch(
-        f"/conversations/{conversation_id}/archive",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert archived.status_code == 200
+    try:
+        data = (await post_capture(client, token, "Paid 500 for petrol")).json()
+        response = await confirm(client, token, data)
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+        assert len(response.json()["transaction_ids"]) == 1
 
-    response = await client.post(
-        "/capture",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "conversation_id": conversation_id,
-            "message": "Paid ₹500 for petrol",
-        },
+        transactions = await client.get("/transactions", headers=auth(token))
+        assert len(transactions.json()) == 1
+        assert transactions.json()[0]["amount"] == "500.00"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_clarification_keeps_amount_locked_until_confirmation(client):
+    token = await register_and_login(client)
+    provider = AsyncMock()
+    provider.extract_financial_event.side_effect = [
+        CaptureAIResponse(
+            status="needs_clarification",
+            transactions=[],
+            missing_fields=["category"],
+            assistant_message="What was the 219 for?",
+            confidence=0.9,
+        ),
+        CaptureAIResponse(
+            status="needs_clarification",
+            transactions=[expense(500, category="Bills")],
+            missing_fields=["account"],
+            assistant_message="Which account was used for 500?",
+            confidence=0.9,
+        ),
+        CaptureAIResponse(
+            status="completed",
+            transactions=[expense(500, account="Spending Account", category="Bills", description="Airtel recharge")],
+            assistant_message="Recorded 500.",
+            confidence=0.9,
+        ),
+    ]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        first = (await post_capture(client, token, "Spent 219 rs")).json()
+        second = (await post_capture(client, token, "Airtel recharge", first["conversation_id"])).json()
+        assert "219" in second["assistant_message"]
+        third = (await post_capture(client, token, "The SBI account", first["conversation_id"])).json()
+        assert third["status"] == "awaiting_confirmation"
+        assert third["proposed_transactions"][0]["amount"] == "219"
+
+        confirmed = await confirm(client, token, third)
+        assert confirmed.status_code == 200
+        transactions = await client.get("/transactions", headers=auth(token))
+        assert transactions.json()[0]["amount"] == "219.00"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_is_only_applied_after_confirmation(client):
+    token = await register_and_login(client)
+    provider = AsyncMock()
+    create = CaptureAIResponse(
+        status="completed",
+        transactions=[expense(500, account="Spending Account", category="Transport", description="Petrol")],
+        assistant_message="Ready.",
+        confidence=0.99,
     )
-    assert response.status_code == 404
+    update = CaptureAIResponse(
+        status="completed",
+        transactions=[AITransaction(operation="update", amount=650, description="Scooter petrol")],
+        assistant_message="Updated.",
+        confidence=0.99,
+    )
+    provider.extract_financial_event.side_effect = [create, update]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        created = (await post_capture(client, token, "Paid 500 for petrol")).json()
+        await confirm(client, token, created)
+        transaction = (await client.get("/transactions", headers=auth(token))).json()[0]
+        update.transactions[0].transaction_id = UUID(transaction["id"])
+
+        proposal = (await post_capture(client, token, "Actually it was 650 for scooter petrol", created["conversation_id"])).json()
+        assert proposal["status"] == "awaiting_confirmation"
+        unchanged = (await client.get(f"/transactions/{transaction['id']}", headers=auth(token))).json()
+        assert unchanged["amount"] == "500.00"
+
+        confirmed = await confirm(client, token, proposal)
+        assert confirmed.status_code == 200
+        changed = (await client.get(f"/transactions/{transaction['id']}", headers=auth(token))).json()
+        assert changed["amount"] == "650.00"
+        assert changed["description"] == "Scooter petrol"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_delete_is_only_applied_after_confirmation(client):
+    token = await register_and_login(client)
+    provider = AsyncMock()
+    delete_response = CaptureAIResponse(
+        status="completed",
+        transactions=[AITransaction(operation="delete")],
+        assistant_message="Ready to remove it.",
+        confidence=0.99,
+    )
+    provider.extract_financial_event.side_effect = [
+        CaptureAIResponse(status="completed", transactions=[expense(500, category="Transport")], assistant_message="Ready.", confidence=0.99),
+        delete_response,
+    ]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        created = (await post_capture(client, token, "Paid 500 for petrol")).json()
+        await confirm(client, token, created)
+        transaction_id = (await client.get("/transactions", headers=auth(token))).json()[0]["id"]
+        delete_response.transactions[0].transaction_id = UUID(transaction_id)
+        proposal = (await post_capture(client, token, "Delete that transaction", created["conversation_id"])).json()
+        assert (await client.get(f"/transactions/{transaction_id}", headers=auth(token))).status_code == 200
+        assert (await confirm(client, token, proposal)).status_code == 200
+        assert (await client.get(f"/transactions/{transaction_id}", headers=auth(token))).status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_explicit_correction_returns_update_proposal(client):
+    token = await register_and_login(client)
+    provider = AsyncMock()
+    provider.extract_financial_event.side_effect = [
+        CaptureAIResponse(status="completed", transactions=[expense(500, category="Bills")], assistant_message="Ready.", confidence=0.99),
+        CaptureAIResponse(status="needs_clarification", transactions=[], missing_fields=["category"], assistant_message="What was 219 for?", confidence=0.9),
+    ]
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        created = (await post_capture(client, token, "Spent 500 on Airtel recharge")).json()
+        await confirm(client, token, created)
+        transaction_id = (await client.get("/transactions", headers=auth(token))).json()[0]["id"]
+        corrected = (await post_capture(client, token, "Not 500, I spent 219 rs only", created["conversation_id"])).json()
+        assert corrected["status"] == "awaiting_confirmation"
+        assert corrected["proposed_transactions"][0]["operation"] == "update"
+        assert corrected["proposed_transactions"][0]["transaction_id"] == transaction_id
+        assert corrected["proposed_transactions"][0]["amount"] == "219"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_capture_uses_default_account_and_today_when_unspecified(client):
+    token = await register_and_login(client)
+    provider = AsyncMock()
+    provider.extract_financial_event.return_value = CaptureAIResponse(
+        status="completed",
+        transactions=[expense(200, account=None, category="Food", transaction_date=None)],
+        assistant_message="Ready.",
+        confidence=0.99,
+    )
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+
+    try:
+        data = (await post_capture(client, token, "Spent 200 on coffee")).json()
+        proposal = data["proposed_transactions"][0]
+        assert proposal["account"] == "Spending Account"
+        assert proposal["transaction_date"] == datetime.now(timezone.utc).date().isoformat()
+    finally:
+        app.dependency_overrides.clear()

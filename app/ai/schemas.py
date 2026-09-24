@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, WithJsonSchema
 
 
 class AITransaction(BaseModel):
+    draft_id: str | None = None
+    changed_fields: list[str] = Field(default_factory=list)
     operation: Literal["create", "update", "delete"] = "create"
     transaction_id: UUID | None = None
 
@@ -21,7 +23,7 @@ class AITransaction(BaseModel):
     # Advertise a JSON number to AI providers, while retaining Decimal validation
     # and storage. Pydantic's default Decimal string regex breaks GPT-4.1 output.
     amount: Annotated[Decimal, WithJsonSchema({"type": "number"}, mode="validation")] | None = None
-    currency: str = "INR"
+    currency: str | None = None
 
     account: str | None = None
     category: str | None = None
@@ -35,6 +37,7 @@ class AITransaction(BaseModel):
 
 
 class CaptureAIResponse(BaseModel):
+    continuation_event_id: UUID | None = None
     status: Literal["completed", "needs_clarification", "failed"]
     transactions: list[AITransaction] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
