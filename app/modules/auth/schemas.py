@@ -16,6 +16,7 @@ class RegisterResponse(BaseModel):
     status: str
     review_transactions: bool = True
     timezone: str = "UTC"
+    avatar_url: str | None = None
 
 
 class UpdateProfileRequest(BaseModel):
@@ -36,5 +37,6 @@ class LoginResponse(BaseModel):
     status: str
     review_transactions: bool = True
     timezone: str = "UTC"
+    avatar_url: str | None = None
     access_token: str
     token_type: str = "bearer"

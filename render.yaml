@@ -10,6 +10,18 @@ services:
         value: 3.12.8
       - key: DATABASE_URL
         sync: false
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_AVATAR_URL_EXPIRY_SECONDS
+        value: "604800"
       - key: CORS_ORIGINS
         sync: false
       - key: AI_PROVIDER

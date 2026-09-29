@@ -17,6 +17,7 @@ class User(Base):
         default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
+    avatar_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     review_transactions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     status: Mapped[str] = mapped_column(
