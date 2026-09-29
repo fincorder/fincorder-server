@@ -42,9 +42,17 @@ Type summaries count each complete transfer once. Pivot tables exclude transfers
 
 The `quality` view identifies missing descriptions, uncategorized expense/income entries, archived account references, and missing people on lending/borrowing/repayment entries. Its capture counts are grouped from the user's financial events by event creation date.
 
-## Frontend organization
+## User-facing report screens
 
-`ReportsPage` owns the selected route, filters, data loading and export. `ReportFiltersBar` renders the shared search/date/entity filters. `ReportCharts` contains compact reusable chart components. `ReportTable` handles view-specific columns and pagination. A report view has its own route under `/app/reports/{view}` so the bottom navigation remains compact.
+The Reports navigation intentionally presents three simple screens:
+
+- `Overview` shows period spending, transaction count, a spending trend and category breakdown.
+- `By category` shows a month-by-month expense pivot, filtered to expense debits. It starts at year-to-date and supports date range, search, account and category filters.
+- `People` shows outstanding amounts owed in either direction and a paginated people summary.
+
+Account activity remains on the Transactions page. Income, transfers, quality checks and general pivots remain available through the report API for future conversational reports or later product needs, but are not separate report navigation items.
+
+`ReportsPage` owns the selected route, filters, data loading and export. `ReportFiltersBar` renders the shared search/date/entity filters. `ReportCharts` contains the compact overview visuals. `ReportTable` handles the category pivot and people summary tables, including pagination. The three user-facing screens have routes under `/app/reports/{view}` so the bottom navigation remains compact.
 
 ## Conversational reporting boundary
 
