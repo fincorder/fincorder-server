@@ -1,8 +1,12 @@
 # Deployment configuration
 
-## Backend (Render)
+## Backend (Vercel or Render)
 
-The Render blueprint runs `pip install -r requirements.txt`, applies Alembic migrations, and starts FastAPI. Set these values in the Render service environment:
+The FastAPI app is exported from `app/main.py`, which Vercel recognizes as an application entrypoint. Keep the Vercel project root at the backend repository root. It installs Python dependencies from `requirements.txt`; no build command or `pyproject.toml` is needed. `.python-version` pins the runtime to Python 3.12.
+
+For Vercel, add the environment variables below under Project Settings → Environment Variables. Vercel does not run Alembic migrations automatically; the current Neon database is already migrated, and future revisions must be applied deliberately before deploying code that requires them.
+
+Alternatively, the Render blueprint runs `pip install -r requirements.txt`, applies Alembic migrations, and starts FastAPI. Set these values in the Render service environment:
 
 - `DATABASE_URL`: Neon direct connection URL for the production branch; used by both the API and Alembic.
 - `CORS_ORIGINS`: exact frontend origins, comma-separated, without trailing slashes (for example `https://your-app.vercel.app`). Add any custom domain separately.
